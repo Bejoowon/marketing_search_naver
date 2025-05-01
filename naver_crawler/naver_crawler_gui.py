@@ -16,6 +16,14 @@ import webbrowser
 import urllib.parse  # URL 인코딩을 위한 모듈 추가
 from datetime import datetime  # 날짜, 시간 처리를 위한 모듈 추가
 
+# 클립보드 도우미 모듈 가져오기
+try:
+    from clipboard_helper import get_clipboard_text, process_excel_content
+    CLIPBOARD_HELPER_AVAILABLE = True
+except ImportError:
+    print("clipboard_helper 모듈을 로드할 수 없습니다. 기본 클립보드 핸들러를 사용합니다.")
+    CLIPBOARD_HELPER_AVAILABLE = False
+
 class RedirectText:
     def __init__(self, text_widget):
         self.text_widget = text_widget
@@ -43,6 +51,9 @@ class NaverCrawlerGUI:
         self.style.configure("TButton", font=("맑은 고딕", 10))
         self.style.configure("TLabel", font=("맑은 고딕", 10))
         self.style.configure("TFrame", background="#f0f0f0")
+        
+        # 메뉴바 추가 (macOS Command+V 지원 개선)
+        self.create_menus()
         
         # 파비콘 설정 시도
         try:
@@ -90,10 +101,6 @@ class NaverCrawlerGUI:
         
         # 텍스트 위젯에 오른쪽 클릭 메뉴 추가
         self.create_text_context_menu(self.keywords_text)
-        
-        # 텍스트 위젯에 키보드 바인딩 추가 (Ctrl+V 등)
-        self.keywords_text.bind("<Control-v>", self.paste_to_text)
-        self.keywords_text.bind("<Command-v>", self.paste_to_text)  # macOS 지원
         
         # 또는 구분선
         ttk.Separator(self.input_frame, orient=tk.HORIZONTAL).grid(row=2, column=0, columnspan=2, sticky=tk.EW, padx=5, pady=10)
@@ -331,6 +338,81 @@ class NaverCrawlerGUI:
         # 창 종료 이벤트 연결
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
+    def create_menus(self):
+        """메뉴바 생성 - 특히 macOS에서 표준 편집 메뉴 추가"""
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        # 파일 메뉴
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="파일", menu=file_menu)
+        file_menu.add_command(label="키워드 파일 열기", command=self.browse_file)
+        file_menu.add_command(label="결과 저장 경로", command=self.browse_output_dir)
+        file_menu.add_separator()
+        file_menu.add_command(label="종료", command=self.on_closing)
+        
+        # 편집 메뉴 (macOS 단축키를 위해 필수)
+        edit_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="편집", menu=edit_menu)
+        edit_menu.add_command(label="잘라내기", command=lambda: self.cut_text(self.get_focused_text_widget()), accelerator="⌘X")
+        edit_menu.add_command(label="복사", command=lambda: self.copy_text(self.get_focused_text_widget()), accelerator="⌘C")
+        edit_menu.add_command(label="붙여넣기", command=lambda: self.special_paste_command(), accelerator="⌘V")
+        edit_menu.add_separator()
+        edit_menu.add_command(label="모두 선택", command=lambda: self.select_all_text(self.get_focused_text_widget()), accelerator="⌘A")
+        
+        # 도구 메뉴
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="도구", menu=tools_menu)
+        tools_menu.add_command(label="크롤링 시작", command=self.start_crawling)
+        tools_menu.add_command(label="초기화", command=self.clear_fields)
+        
+        # 도움말 메뉴
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="도움말", menu=help_menu)
+        help_menu.add_command(label="단축키 안내", command=self.show_shortcuts)
+        help_menu.add_command(label="정보", command=self.show_about)
+    
+    def get_focused_text_widget(self):
+        """현재 포커스가 있는 텍스트 위젯 반환"""
+        # 기본적으로 키워드 텍스트 위젯 반환
+        return self.keywords_text
+    
+    def special_paste_command(self):
+        """메뉴에서 붙여넣기 명령을 선택했을 때 호출되는 함수"""
+        print("메뉴에서 특수 붙여넣기 명령 실행")
+        focused_widget = self.get_focused_text_widget()
+        if focused_widget:
+            self.paste_text(focused_widget)
+    
+    def show_shortcuts(self):
+        """단축키 안내 대화상자"""
+        shortcuts = """
+        단축키 안내:
+        
+        편집:
+        - ⌘X: 잘라내기
+        - ⌘C: 복사
+        - ⌘V: 붙여넣기
+        - ⌘A: 모두 선택
+        
+        파일:
+        - ⌘O: 파일 열기
+        - ⌘S: 저장
+        
+        실행:
+        - F5: 크롤링 시작
+        """
+        messagebox.showinfo("단축키 안내", shortcuts)
+    
+    def show_about(self):
+        """정보 대화상자"""
+        about = """
+        네이버 검색 크롤러 v1.0
+        
+        엑셀에서 복사한 키워드를 붙여넣어 네이버 검색 결과를 분석합니다.
+        """
+        messagebox.showinfo("정보", about)
+    
     def create_text_context_menu(self, text_widget):
         """
         텍스트 위젯에 우클릭 컨텍스트 메뉴 추가
@@ -346,29 +428,52 @@ class NaverCrawlerGUI:
         # 우클릭 이벤트에 메뉴 표시
         text_widget.bind("<Button-3>", lambda event: self.show_context_menu(event, context_menu))
     
-    def show_context_menu(self, event, menu):
-        """컨텍스트 메뉴 표시"""
-        menu.post(event.x_root, event.y_root)
-    
     def paste_text(self, text_widget):
         """텍스트 위젯에 클립보드 내용 붙여넣기"""
         try:
-            clipboard = self.root.clipboard_get()
+            # 현재 선택된 텍스트가 있으면 삭제
             if text_widget.tag_ranges(tk.SEL):
                 text_widget.delete(tk.SEL_FIRST, tk.SEL_LAST)
             
-            # Excel에서 복사한 내용 처리 (탭과 줄바꿈 처리)
+            # 클립보드 내용 가져오기 (기본 방식 사용)
+            try:
+                clipboard = self.root.clipboard_get()
+            except Exception as e:
+                print(f"클립보드 접근 오류: {str(e)}")
+                return
+            
+            if not clipboard:
+                return
+            
+            # 기본 Excel 형식 처리
             if '\t' in clipboard or '\r\n' in clipboard:
                 # 탭을 쉼표로 변환
                 clipboard = clipboard.replace('\t', ',')
-                # Windows 줄바꿈 통일
-                clipboard = clipboard.replace('\r\n', '\n')
-                
-                print("Excel에서 복사한 키워드를 감지하여 처리했습니다.")
+                # 줄바꿈 문자 통일
+                clipboard = clipboard.replace('\r\n', '\n').replace('\r', '\n')
             
+            # 연속된 줄바꿈 제거
+            while '\n\n' in clipboard:
+                clipboard = clipboard.replace('\n\n', '\n')
+            
+            # 앞뒤 공백 제거
+            clipboard = clipboard.strip()
+            
+            # 이전 내용 확인
+            current_text = text_widget.get("1.0", tk.END).strip()
+            
+            # 줄바꿈 처리
+            if current_text and not current_text.endswith('\n') and clipboard and not clipboard.startswith('\n'):
+                text_widget.insert(tk.INSERT, '\n')
+            
+            # 텍스트 삽입
             text_widget.insert(tk.INSERT, clipboard)
-        except tk.TclError:
-            pass
+            
+            # 커서 위치 보이게 스크롤
+            text_widget.see(tk.INSERT)
+            
+        except Exception as e:
+            print(f"붙여넣기 중 오류: {str(e)}")
     
     def copy_text(self, text_widget):
         """선택된 텍스트 복사"""
@@ -377,25 +482,31 @@ class NaverCrawlerGUI:
                 selected_text = text_widget.get(tk.SEL_FIRST, tk.SEL_LAST)
                 self.root.clipboard_clear()
                 self.root.clipboard_append(selected_text)
-        except tk.TclError:
-            pass
+                print(f"텍스트 {len(selected_text)}자 복사 완료")
+        except tk.TclError as e:
+            print(f"복사 오류: {str(e)}")
     
     def cut_text(self, text_widget):
         """선택된 텍스트 잘라내기"""
-        self.copy_text(text_widget)
-        if text_widget.tag_ranges(tk.SEL):
-            text_widget.delete(tk.SEL_FIRST, tk.SEL_LAST)
+        try:
+            if text_widget.tag_ranges(tk.SEL):
+                selected_text = text_widget.get(tk.SEL_FIRST, tk.SEL_LAST)
+                self.root.clipboard_clear()
+                self.root.clipboard_append(selected_text)
+                text_widget.delete(tk.SEL_FIRST, tk.SEL_LAST)
+                print(f"텍스트 {len(selected_text)}자 잘라내기 완료")
+        except tk.TclError as e:
+            print(f"잘라내기 오류: {str(e)}")
     
     def select_all_text(self, text_widget):
         """텍스트 모두 선택"""
-        text_widget.tag_add(tk.SEL, "1.0", tk.END)
-        text_widget.mark_set(tk.INSERT, "1.0")
-        text_widget.see(tk.INSERT)
-    
-    def paste_to_text(self, event=None):
-        """Ctrl+V 이벤트 핸들러"""
-        self.paste_text(self.keywords_text)
-        return "break"  # tkinter 기본 이벤트 처리 중단
+        try:
+            text_widget.tag_add(tk.SEL, "1.0", tk.END)
+            text_widget.mark_set(tk.INSERT, "1.0")
+            text_widget.see(tk.INSERT)
+            print("텍스트 모두 선택 완료")
+        except tk.TclError as e:
+            print(f"전체 선택 오류: {str(e)}")
     
     def browse_file(self):
         """키워드 파일 선택 대화상자"""
@@ -564,15 +675,27 @@ class NaverCrawlerGUI:
         Returns:
             list: 키워드 목록
         """
-        text = self.keywords_text.get(1.0, tk.END).strip()
+        # 텍스트 상자의 내용 가져오기
+        text = self.keywords_text.get(1.0, tk.END)
+        
+        # 줄바꿈 통일 및 앞뒤 공백 제거
+        text = text.replace('\r\n', '\n').strip()
+        
         if not text:
             return []
         
+        # 디버깅을 위한 출력
+        print(f"처리할 텍스트: {repr(text[:50])}")
+        
         # 쉼표, 탭, 줄바꿈으로 분리
-        lines = text.replace('\r\n', '\n').split('\n')
+        lines = text.split('\n')
         keywords = []
         
         for line in lines:
+            # 빈 줄 무시
+            if not line.strip():
+                continue
+            
             # 줄에 쉼표가 있으면 쉼표로 분리
             if ',' in line:
                 keywords.extend([k.strip() for k in line.split(',') if k.strip()])
@@ -588,6 +711,8 @@ class NaverCrawlerGUI:
         unique_keywords = sorted(list(dict.fromkeys(keywords)))
         if len(unique_keywords) < len(keywords):
             print(f"중복된 키워드 {len(keywords) - len(unique_keywords)}개가 제거되었습니다.")
+        
+        print(f"추출된 키워드 {len(unique_keywords)}개: {', '.join(unique_keywords[:5])}" + ("..." if len(unique_keywords) > 5 else ""))
         
         return unique_keywords
     
@@ -906,6 +1031,10 @@ class NaverCrawlerGUI:
                 self.root.destroy()
         else:
             self.root.destroy()
+    
+    def show_context_menu(self, event, menu):
+        """컨텍스트 메뉴 표시"""
+        menu.post(event.x_root, event.y_root)
 
 def main():
     root = tk.Tk()
