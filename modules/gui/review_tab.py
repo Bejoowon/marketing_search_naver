@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 from datetime import datetime
+import pandas as pd
 
 # 모듈 경로 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -16,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from modules.review_crawler.naver_review_crawler import NaverReviewCrawler
 
 
-class ReviewTab:
+class ReviewTab(ttk.Frame):
     """구매평 수집 탭 클래스"""
     
     def __init__(self, parent, logger):
@@ -25,126 +26,59 @@ class ReviewTab:
         self.logger = logger
         self.crawler = None
         self.is_crawling = False
+        self.thread = None
+        
+        # 변수 초기화
+        self.url_var = tk.StringVar()
+        self.max_pages_var = tk.StringVar(value="10")
+        self.headless_var = tk.BooleanVar(value=True)
+        self.debug_var = tk.BooleanVar(value=False)  # 디버그 모드 변수 추가
+        self.output_file_var = tk.StringVar(
+            value=os.path.join("results", "reviews", f"reviews_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+        )
         
         # 프레임 생성
         self.frame = ttk.Frame(parent)
         self.setup_ui()
     
     def setup_ui(self):
-        """UI 설정"""
-        # 메인 프레임
+        """UI 구성"""
+        # UI 구성 요소 생성
         main_frame = ttk.Frame(self.frame, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 왼쪽 프레임 (입력 부분)
-        left_frame = ttk.LabelFrame(main_frame, text="수집 설정", padding=10)
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        # 왼쪽 패널 (입력 패널)
+        left_frame = ttk.Frame(main_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # 입력 유형 선택
-        input_type_frame = ttk.Frame(left_frame)
-        input_type_frame.pack(fill=tk.X, pady=5)
+        # URL 입력 프레임
+        url_frame = ttk.LabelFrame(left_frame, text="상품 URL")
+        url_frame.pack(fill=tk.X, pady=5)
         
-        ttk.Label(input_type_frame, text="입력 유형:").pack(side=tk.LEFT)
+        ttk.Label(url_frame, text="URL:").pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Entry(url_frame, textvariable=self.url_var, width=50).pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
         
-        self.input_type_var = tk.StringVar(value="url")
-        ttk.Radiobutton(
-            input_type_frame, 
-            text="단일 URL", 
-            variable=self.input_type_var, 
-            value="url",
-            command=self.toggle_input_type
-        ).pack(side=tk.LEFT, padx=(10, 5))
-        
-        ttk.Radiobutton(
-            input_type_frame, 
-            text="URL 목록 파일", 
-            variable=self.input_type_var, 
-            value="file",
-            command=self.toggle_input_type
-        ).pack(side=tk.LEFT, padx=5)
-        
-        # 단일 URL 입력
-        self.url_frame = ttk.Frame(left_frame)
-        self.url_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(self.url_frame, text="상품 URL:").pack(side=tk.LEFT)
-        self.url_var = tk.StringVar()
-        self.url_entry = ttk.Entry(self.url_frame, textvariable=self.url_var, width=50)
-        self.url_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # 복사 붙여넣기 바인딩 추가
-        self.url_entry.bind("<Control-v>", lambda e: self.paste_to_entry(e, self.url_entry))
-        self.url_entry.bind("<Control-c>", lambda e: self.copy_from_entry(e, self.url_entry))
-        self.url_entry.bind("<Control-x>", lambda e: self.cut_from_entry(e, self.url_entry))
-        self.url_entry.bind("<Control-a>", lambda e: self.select_all_entry(e, self.url_entry))
-        # macOS용 Command 키 바인딩 추가
-        self.url_entry.bind("<Command-v>", lambda e: self.paste_to_entry(e, self.url_entry))
-        self.url_entry.bind("<Command-c>", lambda e: self.copy_from_entry(e, self.url_entry))
-        self.url_entry.bind("<Command-x>", lambda e: self.cut_from_entry(e, self.url_entry))
-        self.url_entry.bind("<Command-a>", lambda e: self.select_all_entry(e, self.url_entry))
-        
-        # 파일 입력
-        self.file_frame = ttk.Frame(left_frame)
-        
-        ttk.Label(self.file_frame, text="입력 파일:").pack(side=tk.LEFT)
-        self.input_file_var = tk.StringVar()
-        self.input_file_entry = ttk.Entry(self.file_frame, textvariable=self.input_file_var, width=40)
-        self.input_file_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # 입력 파일 필드에 복사 붙여넣기 바인딩 추가
-        self.input_file_entry.bind("<Control-v>", lambda e: self.paste_to_entry(e, self.input_file_entry))
-        self.input_file_entry.bind("<Control-c>", lambda e: self.copy_from_entry(e, self.input_file_entry))
-        self.input_file_entry.bind("<Control-x>", lambda e: self.cut_from_entry(e, self.input_file_entry))
-        self.input_file_entry.bind("<Control-a>", lambda e: self.select_all_entry(e, self.input_file_entry))
-        # macOS용 Command 키 바인딩 추가
-        self.input_file_entry.bind("<Command-v>", lambda e: self.paste_to_entry(e, self.input_file_entry))
-        self.input_file_entry.bind("<Command-c>", lambda e: self.copy_from_entry(e, self.input_file_entry))
-        self.input_file_entry.bind("<Command-x>", lambda e: self.cut_from_entry(e, self.input_file_entry))
-        self.input_file_entry.bind("<Command-a>", lambda e: self.select_all_entry(e, self.input_file_entry))
-        
-        ttk.Button(
-            self.file_frame, 
-            text="파일 선택", 
-            command=self.select_input_file
-        ).pack(side=tk.LEFT)
-        
-        # 출력 설정
-        output_frame = ttk.Frame(left_frame)
-        output_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Label(output_frame, text="출력 파일:").pack(side=tk.LEFT)
-        self.output_file_var = tk.StringVar()
-        self.output_file_var.set(os.path.join("results", "reviews", f"reviews_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"))
-        self.output_file_entry = ttk.Entry(output_frame, textvariable=self.output_file_var, width=40)
-        self.output_file_entry.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-        
-        # 출력 파일 필드에 복사 붙여넣기 바인딩 추가
-        self.output_file_entry.bind("<Control-v>", lambda e: self.paste_to_entry(e, self.output_file_entry))
-        self.output_file_entry.bind("<Control-c>", lambda e: self.copy_from_entry(e, self.output_file_entry))
-        self.output_file_entry.bind("<Control-x>", lambda e: self.cut_from_entry(e, self.output_file_entry))
-        self.output_file_entry.bind("<Control-a>", lambda e: self.select_all_entry(e, self.output_file_entry))
-        # macOS용 Command 키 바인딩 추가
-        self.output_file_entry.bind("<Command-v>", lambda e: self.paste_to_entry(e, self.output_file_entry))
-        self.output_file_entry.bind("<Command-c>", lambda e: self.copy_from_entry(e, self.output_file_entry))
-        self.output_file_entry.bind("<Command-x>", lambda e: self.cut_from_entry(e, self.output_file_entry))
-        self.output_file_entry.bind("<Command-a>", lambda e: self.select_all_entry(e, self.output_file_entry))
-        
-        ttk.Button(
-            output_frame, 
-            text="파일 선택", 
-            command=self.select_output_file
-        ).pack(side=tk.LEFT)
-        
-        # 옵션 설정
-        options_frame = ttk.Frame(left_frame)
+        # 옵션 프레임
+        options_frame = ttk.LabelFrame(left_frame, text="수집 옵션")
         options_frame.pack(fill=tk.X, pady=5)
         
-        self.headless_var = tk.BooleanVar(value=True)
+        # 최대 페이지 수
+        ttk.Label(options_frame, text="최대 페이지 수:").pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Entry(options_frame, textvariable=self.max_pages_var, width=5).pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # 헤드리스 모드 체크박스
         ttk.Checkbutton(
             options_frame, 
-            text="헤드리스 모드 (화면에 표시하지 않음)", 
+            text="헤드리스 모드", 
             variable=self.headless_var
         ).pack(side=tk.LEFT)
+        
+        # 디버그 모드 체크박스
+        ttk.Checkbutton(
+            options_frame, 
+            text="디버그 모드 (문제 해결 시 활성화)", 
+            variable=self.debug_var
+        ).pack(side=tk.LEFT, padx=10)
         
         # 수집 버튼
         button_frame = ttk.Frame(left_frame)
@@ -247,325 +181,132 @@ class ReviewTab:
         
         self.progress_label_var = tk.StringVar(value="0%")
         ttk.Label(progress_frame, textvariable=self.progress_label_var, width=6).pack(side=tk.LEFT)
-        
-        # 초기 UI 상태 설정
-        self.toggle_input_type()
-    
-    def toggle_input_type(self):
-        """입력 유형에 따른 UI 토글"""
-        input_type = self.input_type_var.get()
-        
-        if input_type == "url":
-            self.file_frame.pack_forget()
-            self.url_frame.pack(fill=tk.X, pady=5, after=self.url_frame.master.winfo_children()[0])
-        else:
-            self.url_frame.pack_forget()
-            self.file_frame.pack(fill=tk.X, pady=5, after=self.file_frame.master.winfo_children()[0])
-    
-    def select_input_file(self):
-        """입력 파일 선택"""
-        file_path = filedialog.askopenfilename(
-            title="입력 파일 선택",
-            filetypes=[
-                ("엑셀 파일", "*.xlsx *.xls"),
-                ("CSV 파일", "*.csv"),
-                ("모든 파일", "*.*")
-            ]
-        )
-        
-        if file_path:
-            self.input_file_var.set(file_path)
-            
-            # 출력 파일 이름도 자동 설정
-            input_name = os.path.splitext(os.path.basename(file_path))[0]
-            output_dir = os.path.dirname(self.output_file_var.get())
-            self.output_file_var.set(
-                os.path.join(output_dir, f"{input_name}_reviews.xlsx")
-            )
-    
-    def select_output_file(self):
-        """출력 파일 선택"""
-        file_path = filedialog.asksaveasfilename(
-            title="출력 파일 선택",
-            defaultextension=".xlsx",
-            filetypes=[
-                ("엑셀 파일", "*.xlsx"),
-                ("CSV 파일", "*.csv")
-            ]
-        )
-        
-        if file_path:
-            self.output_file_var.set(file_path)
-    
-    def add_log(self, message):
-        """로그 텍스트 영역에 메시지 추가"""
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, f"{message}\n")
-        self.log_text.see(tk.END)
-        self.log_text.config(state=tk.DISABLED)
-    
-    def update_progress(self, value, max_value):
-        """진행 상태바 업데이트"""
-        progress = (value / max_value) * 100
-        self.progress_var.set(progress)
-        self.progress_label_var.set(f"{progress:.1f}%")
     
     def start_crawling(self):
         """크롤링 시작"""
-        # 입력 검증
-        input_type = self.input_type_var.get()
+        if self.is_crawling:
+            messagebox.showwarning("경고", "이미 수집 중입니다.")
+            return
         
-        if input_type == "url":
-            url = self.url_var.get().strip()
-            if not url:
-                messagebox.showerror("오류", "상품 URL을 입력해주세요.")
-                return
-            
-            # 크롤링 인자 설정
-            kwargs = {
-                "url": url,
-                "output_file": self.output_file_var.get(),
-                "headless": self.headless_var.get()
-            }
-            
-        else:  # 파일 입력
-            input_file = self.input_file_var.get()
-            output_file = self.output_file_var.get()
-            
-            if not input_file:
-                messagebox.showerror("오류", "입력 파일을 선택해주세요.")
-                return
-            
-            if not output_file:
-                messagebox.showerror("오류", "출력 파일을 선택해주세요.")
-                return
-            
-            # 크롤링 인자 설정
-            kwargs = {
-                "input_file": input_file,
-                "output_file": output_file,
-                "headless": self.headless_var.get()
-            }
+        # 입력 URL 가져오기
+        url = self.url_var.get().strip()
+        if not url:
+            messagebox.showwarning("경고", "URL을 입력해주세요.")
+            return
         
-        # 출력 디렉토리 생성
-        output_dir = os.path.dirname(self.output_file_var.get())
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        
-        # UI 상태 업데이트
-        self.is_crawling = True
-        self.start_button.config(state=tk.DISABLED)
-        self.stop_button.config(state=tk.NORMAL)
-        self.progress_var.set(0)
-        self.progress_label_var.set("0%")
+        # URL 유효성 검사
+        if not url.startswith(("http://", "https://")):
+            messagebox.showwarning("경고", "유효한 URL을 입력해주세요.")
+            return
         
         # 로그 초기화
-        self.log_text.config(state=tk.NORMAL)
         self.log_text.delete(1.0, tk.END)
-        self.log_text.config(state=tk.DISABLED)
-        
+        self.add_log(f"URL: {url}")
         self.add_log("수집을 시작합니다...")
         
-        # 크롤러 인스턴스 생성 및 시작
-        self.crawler = NaverReviewCrawler(headless=kwargs.get("headless", True))
+        # 최대 페이지 수 가져오기
+        try:
+            max_pages = int(self.max_pages_var.get())
+        except ValueError:
+            max_pages = 10
+            self.add_log(f"최대 페이지 수가 유효하지 않아 기본값 {max_pages}으로 설정합니다.")
         
-        # 별도 스레드에서 크롤링 실행
-        threading.Thread(
-            target=self._crawling_thread,
-            args=(input_type, kwargs),
-            daemon=True
-        ).start()
+        # 출력 파일 경로 가져오기
+        output_file = self.output_file_var.get()
+        
+        # 크롤러 인스턴스 생성
+        self.crawler = NaverReviewCrawler(headless=True)
+        
+        # UI 비활성화
+        self.start_button.config(state=tk.DISABLED)
+        self.stop_button.config(state=tk.NORMAL)
+        self.is_crawling = True
+        
+        # 디버그 모드 설정
+        debug_mode = self.debug_var.get() if hasattr(self, 'debug_var') else False
+        
+        # 스레드 생성
+        self.thread = threading.Thread(
+            target=self._crawl_thread,
+            args=(url, max_pages, output_file, debug_mode)
+        )
+        self.thread.daemon = True
+        self.thread.start()
     
-    def _crawling_thread(self, input_type, kwargs):
+    def _crawl_thread(self, url, max_pages, output_file, debug_mode=False):
         """크롤링 스레드"""
         try:
-            # 크롤러 초기화
-            self.crawler = NaverReviewCrawler(headless=self.headless_var.get())
-            self.add_log("크롤러가 초기화되었습니다.")
+            # 결과 저장 디렉토리 확인
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
             
-            # 진행 상태 초기화
+            # 구매평 수집 시작
+            self.add_log(f"최대 {max_pages}페이지까지 수집합니다...")
+            
+            # 디버그 모드 로그
+            if debug_mode:
+                self.add_log("디버그 모드가 활성화되었습니다. 상세 로그가 출력됩니다.")
+            
+            # 진행 상황 콜백 함수
+            def progress_callback(current, total, review=None):
+                self.progress_var.set(int(current / total * 100))
+                self.progress_label_var.set(f"{int(current / total * 100)}%")
+                
+                if review:
+                    if hasattr(review, 'get'):
+                        self.add_log(f"리뷰 수집 중: {review.get('작성자명', '알 수 없음')}님의 리뷰")
+                    else:
+                        self.add_log(f"리뷰 수집 중...")
+            
+            # 크롤링 실행
+            result_df = self.crawler.collect_reviews(
+                url, 
+                max_pages=max_pages, 
+                progress_callback=progress_callback,
+                debug_mode=debug_mode
+            )
+            
+            # 결과 처리
+            if result_df is not None and not result_df.empty:
+                # 엑셀 파일로 저장
+                result_df.to_excel(output_file, index=False, engine="openpyxl")
+                self.add_log(f"총 {len(result_df)}개의 구매평을 수집하여 저장했습니다.")
+                self.add_log(f"파일 경로: {output_file}")
+                
+                # 테이블에 결과 표시
+                self.display_result(result_df)
+                
+                # 완료 메시지
+                messagebox.showinfo("완료", f"구매평 수집이 완료되었습니다.\n총 {len(result_df)}개의 구매평이 저장되었습니다.")
+            else:
+                self.add_log("수집된 구매평이 없습니다.")
+                messagebox.showinfo("완료", "수집된 구매평이 없습니다.")
+                
+                # 빈 결과 표시
+                self.display_result(pd.DataFrame(columns=[
+                    "순번", "작성자명", "별점", "작성일자", "리뷰내용"
+                ]))
+        
+        except Exception as e:
+            self.add_log(f"오류 발생: {str(e)}")
+            
+            if debug_mode:
+                # 디버그 모드에서는 상세 오류 정보 출력
+                import traceback
+                self.add_log(f"상세 오류: {traceback.format_exc()}")
+                
+            messagebox.showerror("오류", f"구매평 수집 중 오류가 발생했습니다.\n{str(e)}")
+        
+        finally:
+            # 크롤링 완료 후 UI 상태 복원
+            self.is_crawling = False
             self.progress_var.set(0)
             self.progress_label_var.set("0%")
+            self.enable_ui()  # UI 활성화
             
-            # 결과 트리뷰 초기화
-            for item in self.result_tree.get_children():
-                self.result_tree.delete(item)
-            
-            try:
-                # 입력 유형에 따라 크롤링 실행
-                if input_type == "url":
-                    product_url = kwargs["url"]
-                    output_file = kwargs["output_file"]
-                    
-                    self.add_log(f"상품 URL: {product_url}")
-                    self.add_log(f"저장 파일: {output_file}")
-                    
-                    # 저장 폴더가 없으면 생성
-                    output_dir = os.path.dirname(output_file)
-                    if output_dir and not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
-                    
-                    # 진행상태 콜백 함수
-                    def progress_callback(current, total, review_data=None):
-                        if total > 0:
-                            progress = (current / total) * 100
-                            self.progress_var.set(progress)
-                            self.progress_label_var.set(f"{progress:.1f}%")
-                            
-                            # 결과에 리뷰 추가
-                            if review_data:
-                                values = (
-                                    current,
-                                    review_data.get('작성자', ''),
-                                    review_data.get('별점', ''),
-                                    review_data.get('내용', '')[:100] + ('...' if len(review_data.get('내용', '')) > 100 else ''),
-                                    review_data.get('작성일', ''),
-                                    '있음' if review_data.get('이미지') else '없음'
-                                )
-                                item_id = self.result_tree.insert('', 'end', values=values)
-                                self.result_tree.see(item_id)  # 스크롤 최신 항목으로
-                    
-                    # 크롤링 실행
-                    result_df = self.crawler.collect_reviews(
-                        product_url, 
-                        progress_callback=progress_callback
-                    )
-                    
-                    # 수집 완료 후 파일 저장
-                    if result_df is not None and not result_df.empty:
-                        # 파일 확장자에 따라 저장 형식 결정
-                        if output_file.lower().endswith('.csv'):
-                            result_df.to_csv(kwargs["output_file"], index=False, encoding='utf-8-sig')
-                        else:
-                            result_df.to_excel(kwargs["output_file"], index=False, engine='openpyxl')
-                        
-                        self.add_log(f"총 {len(result_df)}개의 구매평이 수집되어 '{output_file}'에 저장되었습니다.")
-                        
-                        # 결과 탭으로 이동
-                        self.tab_control.select(1)  # 결과 탭으로 전환
-                        
-                        # GUI 스레드에서 messagebox 표시
-                        self.parent.after(0, lambda: messagebox.showinfo("완료", f"총 {len(result_df)}개의 구매평이 성공적으로 수집되었습니다."))
-                    else:
-                        self.add_log("수집된 구매평이 없습니다.")
-                else:
-                    # 파일에서 URL 목록 읽기
-                    input_file = kwargs["input_file"]
-                    output_file = kwargs["output_file"]
-                    
-                    self.add_log(f"입력 파일: {input_file}")
-                    self.add_log(f"저장 파일: {output_file}")
-                    
-                    # 저장 폴더가 없으면 생성
-                    output_dir = os.path.dirname(output_file)
-                    if output_dir and not os.path.exists(output_dir):
-                        os.makedirs(output_dir)
-                    
-                    # 파일 형식에 따라 읽기
-                    if input_file.lower().endswith(('.xlsx', '.xls')):
-                        import pandas as pd
-                        url_df = pd.read_excel(input_file)
-                        
-                        if not url_df.empty and len(url_df.columns) > 0:
-                            urls = url_df.iloc[:, 0].dropna().tolist()
-                        else:
-                            urls = []
-                    else:
-                        # CSV 또는 텍스트 파일
-                        with open(input_file, 'r', encoding='utf-8') as f:
-                            urls = [line.strip() for line in f.readlines() if line.strip()]
-                    
-                    if not urls:
-                        self.add_log("입력 파일에서 URL을 찾을 수 없습니다.")
-                        return
-                    
-                    self.add_log(f"총 {len(urls)}개의 URL을 처리합니다.")
-                    
-                    # 모든 결과를 저장할 데이터프레임
-                    import pandas as pd
-                    all_results = pd.DataFrame()
-                    
-                    # 각 URL 처리
-                    for idx, url in enumerate(urls, 1):
-                        if not self.is_crawling:
-                            self.add_log("크롤링이 중단되었습니다.")
-                            break
-                        
-                        self.add_log(f"[{idx}/{len(urls)}] URL 처리 중: {url}")
-                        
-                        # 진행상태 콜백 함수
-                        def progress_callback(current, total, review_data=None):
-                            if total > 0:
-                                overall_progress = ((idx - 1) + (current / total)) / len(urls) * 100
-                                self.progress_var.set(overall_progress)
-                                self.progress_label_var.set(f"{overall_progress:.1f}%")
-                                
-                                # 결과에 리뷰 추가
-                                if review_data:
-                                    values = (
-                                        f"{idx}-{current}",
-                                        review_data.get('작성자', ''),
-                                        review_data.get('별점', ''),
-                                        review_data.get('내용', '')[:100] + ('...' if len(review_data.get('내용', '')) > 100 else ''),
-                                        review_data.get('작성일', ''),
-                                        '있음' if review_data.get('이미지') else '없음'
-                                    )
-                                    item_id = self.result_tree.insert('', 'end', values=values)
-                                    self.result_tree.see(item_id)  # 스크롤 최신 항목으로
-                        
-                            # 크롤링 중단 여부 확인
-                            return self.is_crawling
-                        
-                        try:
-                            # 크롤링 실행
-                            result_df = self.crawler.collect_reviews(
-                                url, 
-                                progress_callback=progress_callback
-                            )
-                            
-                            if result_df is not None and not result_df.empty:
-                                # URL 정보 추가
-                                result_df['상품URL'] = url
-                                
-                                # 전체 결과에 추가
-                                all_results = pd.concat([all_results, result_df], ignore_index=True)
-                                
-                                self.add_log(f"[{idx}/{len(urls)}] {len(result_df)}개의 구매평 수집 완료")
-                            else:
-                                self.add_log(f"[{idx}/{len(urls)}] 수집된 구매평이 없습니다.")
-                        except Exception as e:
-                            self.add_log(f"[{idx}/{len(urls)}] 오류 발생: {str(e)}")
-                    
-                    # 전체 결과 저장
-                    if not all_results.empty:
-                        # 파일 확장자에 따라 저장 형식 결정
-                        if output_file.lower().endswith('.csv'):
-                            all_results.to_csv(output_file, index=False, encoding='utf-8-sig')
-                        else:
-                            all_results.to_excel(output_file, index=False, engine='openpyxl')
-                        
-                        self.add_log(f"총 {len(all_results)}개의 구매평이 수집되어 '{output_file}'에 저장되었습니다.")
-                        
-                        # 결과 탭으로 이동
-                        self.tab_control.select(1)  # 결과 탭으로 전환
-                        
-                        # GUI 스레드에서 messagebox 표시
-                        self.parent.after(0, lambda: messagebox.showinfo("완료", f"총 {len(all_results)}개의 구매평이 성공적으로 수집되었습니다."))
-                    else:
-                        self.add_log("수집된 구매평이 없습니다.")
-            except Exception as e:
-                self.add_log(f"오류 발생: {str(e)}")
-                # GUI 스레드에서 messagebox 표시
-                self.parent.after(0, lambda: messagebox.showerror("오류", f"크롤링 중 오류가 발생했습니다.\n{str(e)}"))
-        finally:
             # 크롤러 종료
             if self.crawler:
                 self.crawler.close()
                 self.crawler = None
-            
-            # UI 상태 복원
-            self.is_crawling = False
-            self.parent.after(0, self.enable_ui)
     
     def stop_crawling(self):
         """크롤링 중단"""
@@ -575,6 +316,13 @@ class ReviewTab:
             self.is_crawling = False
             self.start_button.config(state=tk.NORMAL)
             self.stop_button.config(state=tk.DISABLED)
+    
+    def enable_ui(self):
+        """UI 상태 복원"""
+        self.start_button.config(state=tk.NORMAL)
+        self.stop_button.config(state=tk.DISABLED)
+        self.progress_var.set(0)
+        self.progress_label_var.set("0%")
     
     def refresh(self):
         """UI 새로고침"""
@@ -638,4 +386,45 @@ class ReviewTab:
             # 이미지가 있는 경우
             if values[5] == '있음':
                 # 크롤링 결과에서 이미지 URL 찾기 필요 (구현 필요)
-                messagebox.showinfo("이미지 보기", "이 기능은 아직 준비 중입니다.") 
+                messagebox.showinfo("이미지 보기", "이 기능은 아직 준비 중입니다.")
+    
+    def add_log(self, message):
+        """로그 텍스트 영역에 메시지 추가"""
+        self.log_text.config(state=tk.NORMAL)
+        self.log_text.insert(tk.END, f"{message}\n")
+        self.log_text.see(tk.END)
+        self.log_text.config(state=tk.DISABLED)
+        
+    def update_progress(self, value, max_value):
+        """진행 상태바 업데이트"""
+        progress = (value / max_value) * 100
+        self.progress_var.set(progress)
+        self.progress_label_var.set(f"{progress:.1f}%")
+        
+    def display_result(self, df):
+        """결과 트리뷰에 데이터 표시"""
+        # 기존 데이터 삭제
+        for item in self.result_tree.get_children():
+            self.result_tree.delete(item)
+            
+        # 새 데이터 추가
+        if not df.empty:
+            for _, row in df.iterrows():
+                # 표시할 컬럼 선택 및 포맷팅
+                try:
+                    values = (
+                        row.get("순번", ""),
+                        row.get("작성자명", ""),
+                        row.get("별점", ""),
+                        row.get("작성일자", ""),
+                        row.get("리뷰내용", "")[:100] + ("..." if len(row.get("리뷰내용", "")) > 100 else "")
+                    )
+                    self.result_tree.insert("", "end", values=values)
+                except Exception as e:
+                    self.add_log(f"결과 표시 중 오류: {str(e)}")
+                    
+    def submit_crawling(self):
+        """크롤링 시작"""
+        if self.is_crawling:
+            messagebox.showwarning("경고", "이미 수집 중입니다.")
+            return 

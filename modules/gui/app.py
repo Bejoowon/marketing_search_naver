@@ -121,6 +121,91 @@ class NaverCrawlerGUI:
         )
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
     
+    def create_menu(self):
+        """메뉴바 생성"""
+        menu_bar = tk.Menu(self.root)
+        
+        # 파일 메뉴
+        file_menu = tk.Menu(menu_bar, tearoff=0)
+        file_menu.add_command(label="홈으로", command=lambda: self.show_frame("main"))
+        file_menu.add_command(label="새로고침", command=self.refresh)
+        file_menu.add_separator()
+        file_menu.add_command(label="종료", command=self.root.quit)
+        menu_bar.add_cascade(label="파일", menu=file_menu)
+        
+        # 편집 메뉴 추가 (복사/붙여넣기 등)
+        edit_menu = tk.Menu(menu_bar, tearoff=0)
+        # <<Cut>>, <<Copy>>, <<Paste>> 등의 가상 이벤트를 사용
+        edit_menu.add_command(label="잘라내기 (⌘X)", 
+                             command=lambda: self.root.focus_get().event_generate("<<Cut>>"))
+        edit_menu.add_command(label="복사 (⌘C)", 
+                             command=lambda: self.root.focus_get().event_generate("<<Copy>>"))
+        edit_menu.add_command(label="붙여넣기 (⌘V)", 
+                             command=lambda: self.root.focus_get().event_generate("<<Paste>>"))
+        edit_menu.add_separator()
+        edit_menu.add_command(label="모두 선택 (⌘A)", 
+                             command=self.select_all_text)
+        menu_bar.add_cascade(label="편집", menu=edit_menu)
+        
+        # 기능 메뉴
+        function_menu = tk.Menu(menu_bar, tearoff=0)
+        function_menu.add_command(label="카페 외부노출 키워드 찾기", command=lambda: self.show_frame("keyword"))
+        function_menu.add_command(label="구매평 수집기", command=lambda: self.show_frame("review_collector"))
+        menu_bar.add_cascade(label="기능", menu=function_menu)
+        
+        # 도움말 메뉴
+        help_menu = tk.Menu(menu_bar, tearoff=0)
+        help_menu.add_command(label="사용법", command=self.show_help)
+        help_menu.add_command(label="정보", command=self.show_about)
+        menu_bar.add_cascade(label="도움말", menu=help_menu)
+        
+        # 메뉴바 설정
+        self.root.config(menu=menu_bar)
+    
+    def select_all_text(self):
+        """메뉴: 모두 선택 기능"""
+        try:
+            widget = self.root.focus_get()
+            if isinstance(widget, (tk.Text, ScrolledText)):
+                widget.tag_add(tk.SEL, "1.0", tk.END)
+                widget.mark_set(tk.INSERT, "1.0")
+                widget.see(tk.INSERT)
+            elif isinstance(widget, tk.Entry):
+                widget.select_range(0, tk.END)
+                widget.icursor(tk.END)
+        except:
+            pass
+    
+    def show_frame(self, frame_name):
+        """특정 프레임 표시"""
+        # 현재 표시된 프레임이 있으면 숨김
+        if self.current_frame:
+            if isinstance(self.current_frame, dict):
+                self.current_frame["frame"].pack_forget()
+            else:
+                self.current_frame.pack_forget()
+        
+        # 선택된 프레임 표시
+        if frame_name == "main":
+            self.frames[frame_name].pack(fill="both", expand=True)
+            self.current_frame = self.frames[frame_name]
+            self.status_var.set("메인 화면")
+        elif frame_name == "keyword":
+            # 키워드 수집기 프레임이 설정되어 있지 않으면 설정
+            if "loaded" not in self.frames["keyword"]:
+                # 네이버 검색 크롤러 GUI 통합
+                self.setup_keyword_collector(self.frames["keyword"]["frame"])
+                self.frames["keyword"]["loaded"] = True
+            
+            self.frames["keyword"]["frame"].pack(fill="both", expand=True)
+            self.current_frame = self.frames["keyword"]
+            self.status_var.set("카페 외부노출 키워드 찾기")
+        else:
+            # 구매평 수집기 프레임
+            self.frames[frame_name]["frame"].pack(fill="both", expand=True)
+            self.current_frame = self.frames[frame_name]
+            self.status_var.set("구매평 수집기")
+    
     def setup_main_landing(self, parent):
         """메인 랜딩 페이지 설정"""
         # 제목 프레임
@@ -217,133 +302,56 @@ class NaverCrawlerGUI:
         notebook = ttk.Notebook(parent)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
         
-        # 탭 생성
-        review_tab = ReviewTab(notebook, self.logger)
-        analysis_tab = AnalysisTab(notebook, self.logger)
-        wordcloud_tab = WordcloudTab(notebook, self.logger)
-        
-        # 탭 추가
-        notebook.add(review_tab.frame, text="구매평 수집")
-        notebook.add(analysis_tab.frame, text="감성 분석")
-        notebook.add(wordcloud_tab.frame, text="워드클라우드")
-        
-        # 노트북 참조 저장
-        self.frames["review_collector"]["notebook"] = notebook
-        self.frames["review_collector"]["tabs"] = {
-            "review": review_tab,
-            "analysis": analysis_tab,
-            "wordcloud": wordcloud_tab
-        }
-    
-    def create_menu(self):
-        """메뉴바 생성"""
-        menu_bar = tk.Menu(self.root)
-        
-        # 파일 메뉴
-        file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(label="홈으로", command=lambda: self.show_frame("main"))
-        file_menu.add_command(label="새로고침", command=self.refresh)
-        file_menu.add_separator()
-        file_menu.add_command(label="종료", command=self.root.quit)
-        menu_bar.add_cascade(label="파일", menu=file_menu)
-        
-        # 편집 메뉴 추가 (복사/붙여넣기 등)
-        edit_menu = tk.Menu(menu_bar, tearoff=0)
-        # <<Cut>>, <<Copy>>, <<Paste>> 등의 가상 이벤트를 사용
-        edit_menu.add_command(label="잘라내기 (⌘X)", 
-                             command=lambda: self.root.focus_get().event_generate("<<Cut>>"))
-        edit_menu.add_command(label="복사 (⌘C)", 
-                             command=lambda: self.root.focus_get().event_generate("<<Copy>>"))
-        edit_menu.add_command(label="붙여넣기 (⌘V)", 
-                             command=lambda: self.root.focus_get().event_generate("<<Paste>>"))
-        edit_menu.add_separator()
-        edit_menu.add_command(label="모두 선택 (⌘A)", 
-                             command=self.select_all_text)
-        menu_bar.add_cascade(label="편집", menu=edit_menu)
-        
-        # 기능 메뉴
-        function_menu = tk.Menu(menu_bar, tearoff=0)
-        function_menu.add_command(label="카페 외부노출 키워드 찾기", command=lambda: self.show_frame("keyword"))
-        function_menu.add_command(label="구매평 수집기", command=lambda: self.show_frame("review_collector"))
-        menu_bar.add_cascade(label="기능", menu=function_menu)
-        
-        # 도움말 메뉴
-        help_menu = tk.Menu(menu_bar, tearoff=0)
-        help_menu.add_command(label="사용법", command=self.show_help)
-        help_menu.add_command(label="정보", command=self.show_about)
-        menu_bar.add_cascade(label="도움말", menu=help_menu)
-        
-        # 메뉴바 설정
-        self.root.config(menu=menu_bar)
-    
-    def create_context_menu(self):
-        """오른쪽 클릭 컨텍스트 메뉴 생성"""
-        # 사용하지 않음 - 기본 컨텍스트 메뉴 사용
-        pass
-    
-    def show_context_menu(self, event):
-        """컨텍스트 메뉴 표시"""
-        # 사용하지 않음
-        pass
-    
-    def menu_cut(self):
-        """메뉴: 잘라내기 기능"""
-        # 사용하지 않음
-        pass
-    
-    def menu_copy(self):
-        """메뉴: 복사 기능"""
-        # 사용하지 않음
-        pass
-    
-    def menu_paste(self):
-        """메뉴: 붙여넣기 기능"""
-        # 사용하지 않음
-        pass
-    
-    def select_all_text(self):
-        """메뉴: 모두 선택 기능"""
         try:
-            widget = self.root.focus_get()
-            if isinstance(widget, (tk.Text, ScrolledText)):
-                widget.tag_add(tk.SEL, "1.0", tk.END)
-                widget.mark_set(tk.INSERT, "1.0")
-                widget.see(tk.INSERT)
-            elif isinstance(widget, tk.Entry):
-                widget.select_range(0, tk.END)
-                widget.icursor(tk.END)
-        except:
-            pass
-    
-    def show_frame(self, frame_name):
-        """특정 프레임 표시"""
-        # 현재 표시된 프레임이 있으면 숨김
-        if self.current_frame:
-            if isinstance(self.current_frame, dict):
-                self.current_frame["frame"].pack_forget()
-            else:
-                self.current_frame.pack_forget()
-        
-        # 선택된 프레임 표시
-        if frame_name == "main":
-            self.frames[frame_name].pack(fill="both", expand=True)
-            self.current_frame = self.frames[frame_name]
-            self.status_var.set("메인 화면")
-        elif frame_name == "keyword":
-            # 키워드 수집기 프레임이 설정되어 있지 않으면 설정
-            if "loaded" not in self.frames["keyword"]:
-                # 네이버 검색 크롤러 GUI 통합
-                self.setup_keyword_collector(self.frames["keyword"]["frame"])
-                self.frames["keyword"]["loaded"] = True
+            # 리뷰 수집기 모듈 로드 시도
+            # 각 탭 생성
+            review_tab = ReviewTab(notebook, self.logger)
+            analysis_tab = AnalysisTab(notebook, self.logger)
+            wordcloud_tab = WordcloudTab(notebook, self.logger)
             
-            self.frames["keyword"]["frame"].pack(fill="both", expand=True)
-            self.current_frame = self.frames["keyword"]
-            self.status_var.set("카페 외부노출 키워드 찾기")
-        else:
-            # 구매평 수집기 프레임
-            self.frames[frame_name]["frame"].pack(fill="both", expand=True)
-            self.current_frame = self.frames[frame_name]
-            self.status_var.set("구매평 수집기")
+            # 탭 추가
+            notebook.add(review_tab.frame, text="구매평 수집")
+            notebook.add(analysis_tab.frame, text="감성 분석")
+            notebook.add(wordcloud_tab.frame, text="워드클라우드")
+            
+            # 노트북 참조 저장
+            self.frames["review_collector"]["notebook"] = notebook
+            self.frames["review_collector"]["tabs"] = {
+                "review": review_tab,
+                "analysis": analysis_tab,
+                "wordcloud": wordcloud_tab
+            }
+            
+            self.logger.info("구매평 수집기 모듈 로드 완료")
+            
+        except Exception as e:
+            self.logger.error(f"구매평 수집기 모듈 로드 중 오류 발생: {e}")
+            
+            # 오류 메시지 탭 생성
+            error_tab = ttk.Frame(notebook)
+            notebook.add(error_tab, text="오류")
+            
+            error_label = tk.Label(
+                error_tab,
+                text=f"구매평 수집기 모듈을 로드할 수 없습니다:\n{e}",
+                fg="red",
+                font=("Helvetica", 12),
+                wraplength=600,
+                justify="center"
+            )
+            error_label.pack(expand=True, pady=50)
+            
+            suggestion_label = tk.Label(
+                error_tab,
+                text="modules/review_crawler 디렉토리에 필요한 모듈이 모두 있는지 확인하세요.",
+                wraplength=600,
+                justify="center"
+            )
+            suggestion_label.pack(pady=10)
+            
+            # 노트북 참조 저장
+            self.frames["review_collector"]["notebook"] = notebook
+            self.frames["review_collector"]["error"] = True
     
     def setup_keyword_collector(self, parent):
         """키워드 수집기 설정"""
@@ -369,8 +377,12 @@ class NaverCrawlerGUI:
         )
         title_label.grid(row=0, column=1, sticky=tk.W, padx=20)
         
-        # naver_search_crawler 모듈 임포트
+        # 부모 컨테이너 설정
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+        
         try:
+            # naver_search_crawler 모듈 임포트
             # 현재 파일 경로 기준으로 naver_crawler 모듈 추가
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             naver_crawler_dir = os.path.join(current_dir, "naver_crawler")
@@ -378,10 +390,6 @@ class NaverCrawlerGUI:
                 sys.path.append(naver_crawler_dir)
             
             from naver_crawler.naver_search_crawler_url_analysis import NaverSearchCrawler
-            
-            # 부모 컨테이너 설정
-            parent.columnconfigure(0, weight=1)
-            parent.rowconfigure(1, weight=1)
             
             # 키워드 수집기 UI 구현
             main_frame = ttk.Frame(parent, padding=10)
@@ -564,33 +572,39 @@ class NaverCrawlerGUI:
             
             # 저장
             self.frames["keyword"]["crawler"] = NaverSearchCrawler
+            self.frames["keyword"]["loaded"] = True
+            
+            self.logger.info("카페 외부노출 키워드 찾기 모듈 로드 완료")
             
         except ImportError as e:
-            # 부모 컨테이너 설정
-            parent.columnconfigure(0, weight=1)
-            parent.rowconfigure(0, weight=0)  # 헤더
-            parent.rowconfigure(1, weight=1)  # 에러 메시지
-            parent.rowconfigure(2, weight=0)  # 추가 안내
-
-            error_label = tk.Label(
-                parent,
-                text=f"키워드 수집기 모듈을 로드할 수 없습니다: {e}",
-                fg="red",
-                wraplength=600
-            )
-            error_label.grid(row=1, column=0, pady=50, sticky=tk.N)
+            # 모듈 로드 실패 시 오류 메시지 표시
+            error_frame = ttk.Frame(parent, padding=20)
+            error_frame.grid(row=1, column=0, sticky=tk.NSEW)
             
-            # 추가 안내 메시지
+            error_label = tk.Label(
+                error_frame,
+                text=f"카페 외부노출 키워드 찾기 모듈을 로드할 수 없습니다:\n{e}",
+                fg="red",
+                font=("Helvetica", 12),
+                wraplength=600,
+                justify="center"
+            )
+            error_label.pack(expand=True, pady=50)
+            
             suggestion_text = """
             naver_crawler 모듈이 올바른 위치에 있는지 확인하세요.
             프로젝트 루트 디렉토리에 naver_crawler 폴더가 있어야 합니다.
             """
             suggestion_label = tk.Label(
-                parent,
+                error_frame,
                 text=suggestion_text,
-                wraplength=600
+                wraplength=600,
+                justify="center"
             )
-            suggestion_label.grid(row=2, column=0, pady=10, sticky=tk.N)
+            suggestion_label.pack(pady=10)
+            
+            self.frames["keyword"]["error"] = True
+            self.logger.error(f"카페 외부노출 키워드 찾기 모듈 로드 실패: {e}")
     
     def browse_keyword_file(self):
         """키워드 파일 찾아보기"""

@@ -72,59 +72,79 @@ class NaverCrawlerMain:
             return False
         
         try:
-            module_class = self.modules[module_name]
-            module_instance = module_class(**kwargs)
-            
             self.logger.info(f"{module_name} 모듈을 실행합니다.")
             
             if module_name == "search":
+                # 검색 모듈 실행
                 if "input_file" in kwargs and "output_file" in kwargs:
+                    module_class = self.modules[module_name]
+                    module_instance = module_class(headless=kwargs.get("headless", True))
+                    
                     module_instance.process_keyword_list(
                         kwargs["input_file"], 
                         kwargs["output_file"]
                     )
+                    
+                    # 모듈 종료
+                    if hasattr(module_instance, 'close'):
+                        module_instance.close()
                 else:
                     self.logger.error("검색 모듈에는 input_file과 output_file이 필요합니다.")
                     return False
             
             elif module_name == "review":
-                # 단일 URL 또는 파일 목록 처리
-                if "url" in kwargs:
-                    output_file = kwargs.get("output_file", f"results/reviews/review_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
-                    reviews = module_instance.crawl_product_reviews(kwargs["url"])
-                    
-                    if reviews:
-                        # 결과를 데이터프레임으로 변환하여 저장
-                        import pandas as pd
-                        
-                        # 상품 URL 정보 추가
-                        for review in reviews:
-                            review['상품URL'] = kwargs["url"]
-                        
-                        result_df = pd.DataFrame(reviews)
-                        # 출력 파일 확장자 확인 및 저장
-                        out_ext = os.path.splitext(output_file)[1].lower()
-                        
-                        if out_ext == '.xlsx' or out_ext == '.xls':
-                            result_df.to_excel(output_file, index=False, engine='openpyxl')
-                        else:
-                            # 기본적으로 CSV로 저장
-                            result_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-                        
-                        self.logger.info(f"결과가 저장되었습니다: {output_file}")
+                # 구매평 크롤러 모듈
+                module_class = self.modules[module_name]
+                module_instance = module_class(
+                    headless=kwargs.get("headless", True),
+                    debug_mode=kwargs.get("debug", False)
+                )
                 
-                elif "input_file" in kwargs and "output_file" in kwargs:
-                    module_instance.process_product_list(
-                        kwargs["input_file"], 
-                        kwargs["output_file"]
-                    )
-                else:
-                    self.logger.error("구매평 모듈은 input_file과 output_file 또는 url이 필요합니다.")
-                    return False
-            
-            # 모듈 종료
-            if hasattr(module_instance, 'close'):
-                module_instance.close()
+                try:
+                    # 단일 URL 또는 파일 목록 처리
+                    if "url" in kwargs:
+                        output_file = kwargs.get("output_file", f"results/reviews/review_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+                        
+                        # 구매평 크롤링 실행
+                        reviews = module_instance.crawl_product_reviews(
+                            kwargs["url"],
+                            use_mobile=kwargs.get("use_mobile", False)
+                        )
+                        
+                        if reviews:
+                            # 결과를 데이터프레임으로 변환하여 저장
+                            import pandas as pd
+                            
+                            # 상품 URL 정보 추가
+                            for review in reviews:
+                                review['상품URL'] = kwargs["url"]
+                            
+                            result_df = pd.DataFrame(reviews)
+                            # 출력 파일 확장자 확인 및 저장
+                            out_ext = os.path.splitext(output_file)[1].lower()
+                            
+                            if out_ext == '.xlsx' or out_ext == '.xls':
+                                result_df.to_excel(output_file, index=False, engine='openpyxl')
+                            else:
+                                # 기본적으로 CSV로 저장
+                                result_df.to_csv(output_file, index=False, encoding='utf-8-sig')
+                            
+                            self.logger.info(f"결과가 저장되었습니다: {output_file}")
+                    
+                    elif "input_file" in kwargs and "output_file" in kwargs:
+                        # 파일 목록 처리
+                        module_instance.process_product_list(
+                            kwargs["input_file"], 
+                            kwargs["output_file"]
+                        )
+                    else:
+                        self.logger.error("구매평 모듈은 input_file과 output_file 또는 url이 필요합니다.")
+                        return False
+                
+                finally:
+                    # 모듈 종료 (finally 블록에서 항상 실행)
+                    if hasattr(module_instance, 'close'):
+                        module_instance.close()
             
             return True
             
@@ -140,6 +160,8 @@ class NaverCrawlerMain:
         parser.add_argument("--output", help="출력 파일 경로")
         parser.add_argument("--url", help="단일 URL (구매평 모듈에서 사용)")
         parser.add_argument("--headless", action="store_true", help="헤드리스 모드 실행")
+        parser.add_argument("--debug", action="store_true", help="디버그 모드 활성화 (브라우저 표시 및 상세 로깅)")
+        parser.add_argument("--mobile", action="store_true", help="모바일 페이지 버전으로 접근")
         
         args = parser.parse_args()
         
@@ -149,7 +171,9 @@ class NaverCrawlerMain:
             return
         
         kwargs = {
-            "headless": args.headless
+            "headless": args.headless,
+            "debug": args.debug,
+            "use_mobile": args.mobile
         }
         
         if args.input:
