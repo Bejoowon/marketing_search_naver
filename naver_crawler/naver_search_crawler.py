@@ -67,63 +67,83 @@ class NaverSearchCrawler:
         self.driver.get(url)
         time.sleep(3)  # 페이지 로딩 대기
     
-    def check_popular_tab_exists(self):
-        """인기글 탭이 있는지 확인"""
+    def find_content_sections(self):
+        """페이지에서 콘텐츠 섹션 찾기"""
         try:
-            self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "ul.tabs_content")))
-            tabs = self.driver.find_elements(By.CSS_SELECTOR, "ul.tabs_content li")
+            time.sleep(2)  # 추가 대기
             
-            for tab in tabs:
-                tab_text = tab.text.strip()
-                if "인기글" in tab_text:
-                    logger.info("인기글 탭 발견")
-                    return True, tab
+            # 검색 페이지에서 모든 콘텐츠 섹션 가져오기
+            sections = self.driver.find_elements(By.CSS_SELECTOR, "div.api_subject_bx")
             
-            logger.info("인기글 탭을 찾을 수 없습니다.")
-            return False, None
-        except (TimeoutException, NoSuchElementException) as e:
-            logger.error(f"탭 확인 중 오류 발생: {e}")
-            return False, None
-    
-    def click_popular_tab(self, tab_element):
-        """인기글 탭 클릭"""
-        try:
-            tab_element.click()
-            time.sleep(2)  # 탭 로딩 대기
-            logger.info("인기글 탭 클릭 성공")
-            return True
+            logger.info(f"총 {len(sections)}개의 콘텐츠 섹션 발견")
+            return sections
+        
         except Exception as e:
-            logger.error(f"인기글 탭 클릭 중 오류 발생: {e}")
-            return False
+            logger.error(f"콘텐츠 섹션 검색 중 오류 발생: {e}")
+            return []
     
-    def extract_content_info(self):
-        """인기글 탭의 컨텐츠 정보 추출"""
+    def check_popular_content_exists(self, sections):
+        """인기글 콘텐츠 섹션 확인"""
+        popular_section = None
+        popular_section_title = ""
+        
+        for section in sections:
+            try:
+                # 섹션 제목 가져오기
+                section_title_element = section.find_element(By.CSS_SELECTOR, "h3, h2, strong.tit")
+                if section_title_element:
+                    section_title = section_title_element.text.strip()
+                    
+                    # "관련 브랜드 콘텐츠" 또는 "인기글" 텍스트 포함 여부 확인
+                    if "인기글" in section_title or "브랜드 콘텐츠" in section_title:
+                        logger.info(f"인기 콘텐츠 섹션 발견: '{section_title}'")
+                        popular_section = section
+                        popular_section_title = section_title
+                        break
+            
+            except (NoSuchElementException, Exception) as e:
+                continue
+        
+        if popular_section:
+            return True, popular_section, popular_section_title
+        else:
+            logger.info("인기글/브랜드 콘텐츠 섹션을 찾을 수 없습니다.")
+            return False, None, ""
+    
+    def extract_content_info_from_section(self, section):
+        """섹션에서 콘텐츠 정보 추출"""
         results = []
         
         try:
-            # 현재 페이지의 HTML 가져오기
-            html = self.driver.page_source
-            soup = BeautifulSoup(html, 'html.parser')
+            # 섹션 HTML 가져오기
+            section_html = section.get_attribute('outerHTML')
+            soup = BeautifulSoup(section_html, 'html.parser')
             
-            # 컨텐츠 항목들 찾기 (여러 형태의 컨텐츠 선택자 시도)
-            content_items = soup.select("li.bx")
-            
-            if not content_items:
-                content_items = soup.select("div.total_wrap ul > li")
+            # 콘텐츠 항목 찾기 시도
+            content_items = soup.select("li, div.content_item")
             
             if not content_items:
-                content_items = soup.select("div.view_cont div.api_subject_bx")
+                # 다른 선택자 시도
+                content_items = soup.select("div.brand_area, div.content_area")
             
             if not content_items:
-                logger.warning("인기글 컨텐츠를 찾을 수 없습니다.")
+                logger.warning("섹션에서 콘텐츠 항목을 찾을 수 없습니다.")
                 return results
             
-            # 각 컨텐츠 항목에서 정보 추출
-            for idx, item in enumerate(content_items[:20], 1):  # 최대 20개까지만 추출
+            # 각 콘텐츠 항목에서 정보 추출
+            for idx, item in enumerate(content_items[:20], 1):  # 최대 20개
+                # 콘텐츠 타입 확인 (블로그, 카페 등)
                 content_type = "알 수 없음"
                 
-                # 컨텐츠 유형 추출 시도
-                type_element = item.select_one("a.sub_txt") or item.select_one("span.sub_txt") or item.select_one("span.source")
+                # 여러 가능한 선택자 시도
+                type_element = (
+                    item.select_one("div.detail_box span.etc") or
+                    item.select_one("span.source_box") or
+                    item.select_one("span.sub_txt") or
+                    item.select_one("a.sub_txt") or
+                    item.select_one("span.source")
+                )
+                
                 if type_element:
                     content_type_text = type_element.text.strip()
                     if "블로그" in content_type_text:
@@ -138,11 +158,23 @@ class NaverSearchCrawler:
                         content_type = content_type_text
                 
                 # 제목 추출
-                title_element = item.select_one("a.title_link") or item.select_one("div.title_area") or item.select_one("div.title")
+                title_element = (
+                    item.select_one("a.api_txt_lines") or
+                    item.select_one("strong.title") or
+                    item.select_one("div.title_area") or
+                    item.select_one("div.title") or
+                    item.select_one("a.title_link")
+                )
+                
                 title = title_element.text.strip() if title_element else "제목 없음"
                 
                 # URL 추출
-                url_element = item.select_one("a.title_link") or item.select_one("a.api_txt_lines")
+                url_element = (
+                    item.select_one("a.api_txt_lines") or
+                    item.select_one("a.title_link") or
+                    item.select_one("a")
+                )
+                
                 url = url_element.get('href', '링크 없음') if url_element else '링크 없음'
                 
                 results.append({
@@ -152,11 +184,11 @@ class NaverSearchCrawler:
                     "URL": url
                 })
             
-            logger.info(f"총 {len(results)}개의 인기글 컨텐츠 정보 추출 성공")
+            logger.info(f"총 {len(results)}개의 콘텐츠 정보 추출 성공")
             return results
-        
+            
         except Exception as e:
-            logger.error(f"인기글 컨텐츠 분석 중 오류 발생: {e}")
+            logger.error(f"콘텐츠 분석 중 오류 발생: {e}")
             return results
     
     def analyze_search_result(self, keyword):
@@ -172,20 +204,25 @@ class NaverSearchCrawler:
         result = {
             "키워드": keyword,
             "인기글_탭_존재": False,
+            "인기글_탭_제목": "",
             "인기글_컨텐츠": []
         }
         
         try:
             self.search_keyword(keyword)
             
-            # 인기글 탭 확인
-            popular_tab_exists, tab_element = self.check_popular_tab_exists()
-            result["인기글_탭_존재"] = popular_tab_exists
+            # 모든 콘텐츠 섹션 찾기
+            sections = self.find_content_sections()
             
-            # 인기글 탭이 있으면 클릭하고 컨텐츠 분석
-            if popular_tab_exists and tab_element:
-                if self.click_popular_tab(tab_element):
-                    result["인기글_컨텐츠"] = self.extract_content_info()
+            # 인기글/브랜드 콘텐츠 섹션 찾기
+            popular_exists, popular_section, section_title = self.check_popular_content_exists(sections)
+            
+            result["인기글_탭_존재"] = popular_exists
+            result["인기글_탭_제목"] = section_title
+            
+            # 인기글 콘텐츠 분석
+            if popular_exists and popular_section:
+                result["인기글_컨텐츠"] = self.extract_content_info_from_section(popular_section)
             
             return result
         
@@ -202,11 +239,20 @@ class NaverSearchCrawler:
             output_file (str): 결과를 저장할 CSV 파일 경로
         """
         try:
-            # 엑셀 파일 읽기
-            df = pd.read_excel(input_file)
+            # 파일 확장자 확인
+            file_ext = os.path.splitext(input_file)[1].lower()
             
+            # 엑셀 또는 CSV 파일 읽기
+            if file_ext == '.xlsx' or file_ext == '.xls':
+                df = pd.read_excel(input_file)
+            elif file_ext == '.csv':
+                df = pd.read_csv(input_file, encoding='utf-8')
+            else:
+                raise ValueError("지원하지 않는 파일 형식입니다. .xlsx, .xls, .csv 형식만 지원합니다.")
+            
+            # 키워드 열 확인
             if 'keyword' not in df.columns and '키워드' not in df.columns:
-                raise ValueError("엑셀 파일에 'keyword' 또는 '키워드' 열이 없습니다.")
+                raise ValueError("파일에 'keyword' 또는 '키워드' 열이 없습니다.")
             
             keyword_col = 'keyword' if 'keyword' in df.columns else '키워드'
             keywords = df[keyword_col].tolist()
@@ -223,7 +269,8 @@ class NaverSearchCrawler:
                 # 키워드별 인기글 탭 존재 여부 저장
                 all_results.append({
                     "키워드": keyword,
-                    "인기글_탭_존재": result["인기글_탭_존재"]
+                    "인기글_탭_존재": result["인기글_탭_존재"],
+                    "인기글_탭_제목": result["인기글_탭_제목"]
                 })
                 
                 # 인기글 컨텐츠 정보 저장
@@ -254,6 +301,11 @@ class NaverSearchCrawler:
                 with pd.ExcelWriter(f"{output_base}.xlsx") as writer:
                     all_df.to_excel(writer, sheet_name='탭 요약', index=False)
                     content_df.to_excel(writer, sheet_name='인기글 컨텐츠', index=False)
+            else:
+                # 빈 컨텐츠인 경우도 엑셀 파일 저장
+                with pd.ExcelWriter(f"{output_base}.xlsx") as writer:
+                    all_df.to_excel(writer, sheet_name='탭 요약', index=False)
+                    pd.DataFrame(columns=["키워드", "순번", "컨텐츠_유형", "제목", "URL"]).to_excel(writer, sheet_name='인기글 컨텐츠', index=False)
             
             logger.info(f"결과가 {output_base}_summary.csv, {output_base}_contents.csv, {output_base}.xlsx에 저장되었습니다.")
             
@@ -270,7 +322,7 @@ class NaverSearchCrawler:
 
 def main():
     parser = argparse.ArgumentParser(description='네이버 검색 결과 크롤러')
-    parser.add_argument('--input', '-i', type=str, required=True, help='키워드 목록이 있는 엑셀 파일 경로')
+    parser.add_argument('--input', '-i', type=str, required=True, help='키워드 목록이 있는 파일 경로 (.xlsx, .xls, .csv)')
     parser.add_argument('--output', '-o', type=str, default='naver_search_results', help='결과를 저장할 파일 경로 (확장자 제외)')
     parser.add_argument('--visible', '-v', action='store_true', help='브라우저를 화면에 표시합니다')
     
